@@ -1,0 +1,664 @@
+import "dart:convert";
+import "dart:math";
+import "dart:typed_data";
+
+import "package:chalkdart/chalk.dart";
+import "package:miga/src/%20highlighter/highlighter.dart";
+import "package:miga/src/protocol.dart";
+import "package:miga/src/utils.dart";
+import "package:textwrap/textwrap.dart" show TextWrapper;
+
+/// Theme used by [GraphicalReportHandler] to
+/// render fancy [Diagnostic] reports.
+///
+/// A theme consists of two things: the set of characters to be used for drawing,
+/// and the set of [Chalk]'s from the chalkdart package to be used to paint various items.
+///
+/// You can create your own custom graphical theme using this type, or you can use
+/// one of the predefined ones.
+class MigaGraphicalTheme {
+  /// Characters to be used for drawing.
+  final MigaCharactersTheme characters;
+
+  /// Styles to be used for painting.
+  final MigaStyleTheme styles;
+
+  MigaGraphicalTheme(this.styles, this.characters);
+
+  /// ASCII-art-based graphical drawing, with ANSI styling.
+  MigaGraphicalTheme.ascii([Chalk? root])
+    : characters = MigaCharactersTheme.ascii(),
+      styles = MigaStyleTheme.ansi(root ?? Chalk());
+
+  /// Graphical theme that draws using both ansi colors and unicode
+  /// characters.
+  ///
+  /// Note that full rgb colors aren't enabled by default because they're
+  /// an accessibility hazard, especially in the context of terminal themes
+  /// that can change the background color and make hardcoded colors illegible.
+  /// Such themes typically remap ansi codes properly, treating them more
+  /// like CSS classes than specific colors.
+  MigaGraphicalTheme.unicode([Chalk? root])
+    : characters = MigaCharactersTheme.unicode(),
+      styles = MigaStyleTheme.ansi(root ?? Chalk());
+
+  /// Graphical theme that draws in monochrome, while still using unicode
+  /// characters.
+  MigaGraphicalTheme.unicodeNoColor([Chalk? root])
+    : characters = MigaCharactersTheme.unicode(),
+      styles = MigaStyleTheme.none(root ?? Chalk());
+
+  MigaGraphicalTheme.none([Chalk? root])
+    : characters = MigaCharactersTheme.ascii(),
+      styles = MigaStyleTheme.none(root ?? Chalk());
+}
+
+class MigaStyleTheme {
+  /// Style to apply to things highlighted as "error".
+  final Chalk error;
+
+  /// Style to apply to things highlighted as "warning".
+  final Chalk warning;
+
+  /// Style to apply to things highlighted as "advice".
+  final Chalk advice;
+
+  /// Style to apply to the help text.
+  final Chalk help;
+
+  /// Style to apply to filenames/links/URLs.
+  final Chalk link;
+
+  /// Style to apply to line numbers.
+  final Chalk linum;
+
+  /// Styles to cycle through to render the lines
+  /// and text for diagnostic highlights.
+  final List<Chalk> highlights;
+
+  const MigaStyleTheme({
+    required this.error,
+    required this.warning,
+    required this.advice,
+    required this.help,
+    required this.link,
+    required this.linum,
+    required this.highlights,
+  });
+
+  MigaStyleTheme.rgb(Chalk parent)
+    : error = parent.rgb(255, 30, 30),
+      warning = parent.rgb(244, 191, 117),
+      advice = parent.rgb(106, 159, 181),
+      help = parent.rgb(106, 159, 181),
+      link = parent.rgb(92, 157, 255).underlined.bold,
+      linum = parent.dimGray,
+      highlights = [parent.rgb(246, 87, 248), parent.rgb(30, 201, 212), parent.rgb(145, 246, 111)];
+
+  MigaStyleTheme.ansi(Chalk parent)
+    : error = parent.red,
+      warning = parent.yellow,
+      advice = parent.cyan,
+      help = parent.cyan,
+      link = parent.cyan.underlined.bold,
+      linum = parent.dim,
+      highlights = [parent.magenta, parent.yellow, parent.green];
+
+  MigaStyleTheme.none(Chalk parent)
+    : error = parent.normal,
+      warning = parent.normal,
+      advice = parent.normal,
+      help = parent.normal,
+      link = parent.normal,
+      linum = parent.normal,
+      highlights = [parent.normal];
+}
+
+class MigaCharactersTheme {
+  String hbar;
+  String vbar;
+  String xbar;
+  String vbarBreak;
+
+  String uarrow;
+  String rarrow;
+
+  String ltop;
+  String mtop;
+  String rtop;
+  String lbot;
+  String rbot;
+  String mbot;
+
+  String lbox;
+  String rbox;
+
+  String lcross;
+  String rcross;
+
+  String underbar;
+  String underline;
+
+  String error;
+  String warning;
+  String advice;
+
+  MigaCharactersTheme({
+    required this.hbar,
+    required this.vbar,
+    required this.xbar,
+    required this.vbarBreak,
+    required this.uarrow,
+    required this.rarrow,
+    required this.ltop,
+    required this.mtop,
+    required this.rtop,
+    required this.lbot,
+    required this.rbot,
+    required this.mbot,
+    required this.lbox,
+    required this.rbox,
+    required this.lcross,
+    required this.rcross,
+    required this.underbar,
+    required this.underline,
+    required this.error,
+    required this.warning,
+    required this.advice,
+  });
+
+  MigaCharactersTheme.unicode()
+    : hbar = "─",
+      vbar = "│",
+      xbar = "┼",
+      vbarBreak = "·",
+      uarrow = "▲",
+      rarrow = "▶",
+      ltop = "╭",
+      mtop = "┬",
+      rtop = "╮",
+      lbot = "╰",
+      mbot = "┴",
+      rbot = "╯",
+      lbox = "[",
+      rbox = "]",
+      lcross = "├",
+      rcross = "┤",
+      underbar = "┬",
+      underline = "─",
+      error = "×",
+      warning = "⚠",
+      advice = "☞";
+
+  MigaCharactersTheme.emoji()
+    : hbar = "─",
+      vbar = "│",
+      xbar = "┼",
+      vbarBreak = "·",
+      uarrow = "▲",
+      rarrow = "▶",
+      ltop = "╭",
+      mtop = "┬",
+      rtop = "╮",
+      lbot = "╰",
+      mbot = "┴",
+      rbot = "╯",
+      lbox = "[",
+      rbox = "]",
+      lcross = "├",
+      rcross = "┤",
+      underbar = "┬",
+      underline = "─",
+      error = "💥",
+      warning = "⚠️",
+      advice = "💡";
+
+  MigaCharactersTheme.ascii()
+    : hbar = "-",
+      vbar = "|",
+      xbar = "+",
+      vbarBreak = ":",
+      uarrow = "^",
+      rarrow = ">",
+      ltop = ",",
+      mtop = "v",
+      rtop = ".",
+      lbot = "`",
+      mbot = "^",
+      rbot = "'",
+      lbox = "[",
+      rbox = "]",
+      lcross = "|",
+      rcross = "|",
+      underbar = "|",
+      underline = "^",
+      error = "x",
+      warning = "!",
+      advice = ">";
+}
+
+enum MigaLinkStyle { none, link, text }
+
+/// --------------------------- implementation part ---------------------------------------
+
+class GraphicalReportHandler extends ReportHandler {
+  final MigaLinkStyle links;
+
+  final MigaGraphicalTheme theme;
+
+  /// The 'global' footer for this handler.
+  final String? footer;
+
+  final int contextLines;
+
+  /// Whether to include or not the cause chain of the top-level error in the graphical
+  /// output.
+  final bool withCauseChain;
+
+  /// The width to wrap the report at.
+  final int termWidth;
+
+  /// Enables or disables wrapping of lines to fit the width.
+  final bool wrapLines;
+
+  /// Enables or disables breaking of words during wrapping.
+  final bool breakWords;
+
+  /// Sets the word separator to use when wrapping.
+  final bool withPrimarySpanStart;
+
+  final Highlighter highlighter;
+
+  /// Display text for links. Displays `(link)` if this option is not set.
+  final String? linkDisplayText;
+
+  /// Whether to render related errors as nested errors.
+  final bool showRelatedAsNested;
+
+  GraphicalReportHandler({
+    required this.links,
+    required this.theme,
+    required this.footer,
+    required this.contextLines,
+    required this.withCauseChain,
+    required this.termWidth,
+    required this.wrapLines,
+    required this.breakWords,
+    required this.withPrimarySpanStart,
+    required this.highlighter,
+    required this.linkDisplayText,
+    required this.showRelatedAsNested,
+  });
+
+  @override
+  void report(Diagnostic diagnostic, StringBuffer buffer) {}
+
+  void renderHeader(Diagnostic diagnostic, StringBuffer buffer, bool isNested) {
+    final severityStyle = switch (diagnostic.severity) {
+      Severity.error || null => theme.styles.error,
+      Severity.warning => theme.styles.warning,
+      Severity.advice => theme.styles.advice,
+    };
+    final header = StringBuffer();
+    var needsNewline = isNested;
+
+    if (links == MigaLinkStyle.link && diagnostic.url != null) {
+      final url = diagnostic.url!;
+      final code = diagnostic.code?.toString() ?? "";
+
+      final displayText = linkDisplayText ?? "(link)";
+      final link =
+          "\u{1b}]8;;$url\u{1b}\\${code.style(severityStyle)}${displayText.style(theme.styles.link)}\u{1b}]8;;\u{1b}\\";
+
+      header.write(link);
+      buffer.write(header);
+      needsNewline = true;
+    } else if (diagnostic.code != null) {
+      header.write("${diagnostic.code}".style(severityStyle));
+      if (links == MigaLinkStyle.text && diagnostic.url != null) {
+        header.write(" (${diagnostic.url!.style(theme.styles.link)})");
+      }
+      buffer.writeln(header);
+      needsNewline = true;
+    }
+
+    if (needsNewline) {
+      buffer.writeln();
+    }
+  }
+
+  void renderFooter(Diagnostic diagnostic, StringBuffer buffer, bool isNested) {
+    if (diagnostic.help == null) return;
+
+    final width = max(termWidth - 2, 0);
+    final initialIdent = "  help: ".style(theme.styles.help);
+
+    final lines = TextWrapper(
+      width: width,
+      initialIndent: initialIdent,
+      subsequentIndent: "        ",
+      breakLongWords: breakWords,
+    ).wrap(diagnostic.help!);
+
+    for (final line in lines) {
+      buffer.writeln(line);
+    }
+  }
+
+  void renderSnippets(Diagnostic diagnostic, SourceCode? source, StringBuffer buffer) {
+    if (source == null) return;
+    if (diagnostic.labels == null) return;
+
+    final labels = diagnostic.labels!.toList()..sort((a, b) => a.offset - b.offset);
+
+    final contexts = <(LabeledSourceSpan, SpanContents)>[];
+    for (final right in labels) {
+      final rightConts = source.readSpan(right, contextLines, contextLines);
+      if (contexts.isEmpty) {
+        contexts.add((right, rightConts));
+        continue;
+      }
+
+      final (left, leftConts) = contexts.last;
+      final leftEnd = left.offset + left.length;
+      final rightEnd = right.offset + right.length;
+      if (leftConts.line + leftConts.lineCount < rightConts.line) {
+        contexts.add((right, rightConts));
+        continue;
+      }
+
+      final newSpanLenght = switch (rightEnd >= leftEnd) {
+        true => rightEnd - left.offset,
+        false => left.length,
+      };
+      final newSpan = LabeledSourceSpan(left.label, left.offset, newSpanLenght);
+
+      try {
+        source.readSpan(newSpan, contextLines, contextLines);
+        contexts.removeLast();
+        contexts.add((newSpan, leftConts));
+      } catch (_) {
+        // TODO catch expecific OutOfBounds error only
+        contexts.add((right, rightConts));
+      }
+    }
+
+    for (final (ctx, _) in contexts) {
+      renderContext(source, ctx, labels, buffer);
+    }
+  }
+
+  void renderContext(
+    SourceCode source,
+    LabeledSourceSpan context,
+    List<LabeledSourceSpan> labels,
+    StringBuffer buffer,
+  ) {
+    final (contents, lines) = getLines(source, context.span);
+
+    final contextLabels = labels.where((label) {
+      return context.offset <= label.offset &&
+          label.offset + label.length <= context.offset + context.length;
+    });
+
+    final primaryLabel = contextLabels.isNotEmpty
+        ? contextLabels.firstWhere((l) => l.primary, orElse: () => contextLabels.first)
+        : null;
+
+    final labelsSpans = labels.zip2(theme.styles.highlights.cycle()).map((entry) {
+      final label = entry.$1;
+      final style = entry.$2;
+      return FancySpan(label, style, splitLabel(label.label));
+    });
+
+    final highlighterState = highlighter.startHighlighterState(contents);
+
+    // The max number of gutter-lines that will be active at any given
+    // point. We need this to figure out indentation, so we do one loop
+    // over the lines to see what the damage is gonna be.
+    var maxGutter = 0;
+    for (final line in lines) {
+      var numHighlights = 0;
+      for (final hl in labelsSpans) {
+        if (!line.spanLineOnly(hl) && line.spanAppliesGutter(hl)) {
+          numHighlights += 1;
+        }
+      }
+      maxGutter = max(maxGutter, numHighlights);
+    }
+
+    // Oh and one more thing: We need to figure out how much room our line
+    // numbers need!
+    final linumWidth = (lines.lastOrNull?.lineNumber ?? 0).toString().length;
+
+    buffer.write("${' ' * (linumWidth + 2)}${theme.characters.ltop}${theme.characters.hbar}");
+
+    final primaryContent = switch (primaryLabel) {
+      LabeledSourceSpan v => source.readSpan(v, 0, 0),
+      null => contents,
+    };
+
+    if (primaryContent.name != null) {
+      if (withPrimarySpanStart) {
+        final txt =
+            "${primaryContent.name}:${primaryContent.line + 1}:${primaryContent.column + 1}";
+        buffer.writeln("[${txt.style(theme.styles.link)}]");
+      } else {
+        buffer.writeln("[${primaryContent.name!.style(theme.styles.link)}]");
+      }
+    } else if (withPrimarySpanStart && lines.length > 1) {
+      buffer.writeln("[${primaryContent.line + 1}:${primaryContent.column + 1}]");
+    } else {
+      buffer.writeln(theme.characters.hbar * 3);
+    }
+
+    // Now it's time for the fun part--actually rendering everything!
+    for (final line in lines) {
+      // Line number, appropriately padded.
+      writeLinum(linumWidth, line.lineNumber, buffer);
+      // write_linum(f, linum_width, line.line_number)?;
+
+      // Then, we need to print the gutter, along with any fly-bys We
+      // have separate gutters depending on whether we're on the actual
+      // line, or on one of the "highlight lines" below it.
+      renderLineGutter(maxGutter, line, labelsSpans, buffer);
+    }
+  }
+
+  void renderLineGutter(
+    int maxGutter,
+    _Line line,
+    Iterable<FancySpan> highlights,
+    StringBuffer buffer,
+  ) {
+    if (maxGutter == 0) return;
+
+    final chars = theme.characters;
+    var gutter = StringBuffer();
+    final applicable = highlights.where((hl) => line.spanAppliesGutter(hl));
+    var arrow = false;
+
+    var i = -1;
+    for (final hl in applicable) {
+      i += 1;
+
+      if (line.spanStarts(hl)) {
+        gutter.write(chars.ltop.style(hl.style));
+        gutter.write((chars.hbar * (max(maxGutter - i, 0))).style(hl.style));
+        gutter.write(chars.rarrow.style(hl.style));
+        arrow = true;
+        break;
+      } else if (line.spanEnds(hl)) {
+        if (hl.label != null) {
+          gutter.write(chars.lcross.style(hl.style));
+        } else {
+          gutter.write(chars.lbot.style(hl.style));
+        }
+        gutter.write((chars.hbar * (max(maxGutter - i, 0))).style(hl.style));
+        gutter.write(chars.rarrow.style(hl.style));
+        arrow = true;
+        break;
+      } else if (line.spanFlyby(hl)) {
+        gutter.write(chars.vbar.style(hl.style));
+      } else {
+        gutter.write(" ");
+      }
+    }
+
+    final gutterStr = gutter.toString();
+    final rigthPad = " " * ((arrow ? 1 : 3) + max(maxGutter - (gutterStr.runes.length), 0));
+    buffer.write("$gutterStr$rigthPad");
+  }
+
+  void writeLinum(int width, int linum, StringBuffer buffer) {
+    final linumStr = linum.toString().padRight(width).style(theme.styles.linum);
+    buffer.write(" $linumStr ${theme.characters.vbar}");
+  }
+
+  void writeNoLinum(int width, int linum, StringBuffer buffer) {
+    buffer.write(" ${''.padRight(width)} ${theme.characters.vbar}");
+  }
+
+  (SpanContents, List<_Line>) getLines(SourceCode source, SourceSpan contextSpan) {
+    final contextData = source.readSpan(contextSpan, contextLines, contextLines);
+    final context = utf8.decode(Uint8List.sublistView(contextData.data));
+    final contextLength = context.runes.length;
+
+    var line = contextData.line;
+    var column = contextData.column;
+    var offset = contextData.span.offset;
+    var lineOffset = offset;
+    final lineStr = StringBuffer();
+    final lines = <_Line>[];
+
+    final iter = context.runes.iterator;
+    var count = 0;
+
+    while (iter.moveNext()) {
+      count += 1;
+      final char = iter.current;
+      final width = char.utf8ByteLength();
+
+      offset += width;
+      var atEOF = false;
+
+      if (char == "\r".codeUnitAt(0)) {
+        iter.moveNext();
+        count += 1;
+        if (iter.current != "\n".codeUnitAt(0)) throw "unsuported \\r without \\n after";
+
+        offset += 1;
+        line += 1;
+        column = 0;
+        atEOF = count == contextLength;
+      } else if (char == "\n".codeUnitAt(0)) {
+        atEOF = count == contextLength;
+        line += 1;
+        column = 0;
+      } else {
+        lineStr.writeCharCode(char);
+        column += 1;
+      }
+
+      if (count == contextLength && !atEOF) {
+        line += 1;
+      }
+
+      if (column == 0 || count == contextLength) {
+        lines.add(
+          _Line(
+            lineNumber: line,
+            offset: lineOffset,
+            text: lineStr.toString(),
+            length: offset - lineOffset,
+          ),
+        );
+        lineStr.clear();
+        lineOffset = offset;
+      }
+    }
+    assert(count == contextLength);
+    return (contextData, lines);
+  }
+}
+
+class _Line {
+  final int lineNumber;
+  final int offset;
+  final int length;
+  final String text;
+
+  _Line({required this.lineNumber, required this.offset, required this.length, required this.text});
+
+  bool spanLineOnly(FancySpan span) {
+    return span.offset >= offset && span.offset + span.length <= offset + length;
+  }
+
+  /// Returns whether `span` should be visible on this line, either in the gutter or under the
+  /// text on this line
+  bool spanApplies(FancySpan span) {
+    final spanLen = span.length == 0 ? 1 : span.length;
+
+    return (span.offset >= offset && span.offset < offset + length) ||
+        // Span passes through this line
+        (span.offset < offset && span.offset + spanLen > offset + length) || //todo
+        // Span ends on this line
+        (span.offset + spanLen > offset && span.offset + spanLen <= offset + length);
+  }
+
+  /// Returns whether `span` should be visible on this line in the gutter (so this excludes spans
+  /// that are only visible on this line and do not span multiple lines)
+  bool spanAppliesGutter(FancySpan span) {
+    final spanLen = span.length == 0 ? 1 : span.length;
+
+    return spanApplies(span) &&
+        !(
+        // as long as it doesn't start *and* end on this line
+        (span.offset >= offset && span.offset < offset + length) &&
+            (span.offset + spanLen > offset && span.offset + spanLen <= offset + length));
+  }
+
+  // A 'flyby' is a multi-line span that technically covers this line, but
+  // does not begin or end within the line itself. This method is used to
+  // calculate gutters.
+  bool spanFlyby(FancySpan span) {
+    return span.offset < offset &&
+        // ...and it stops after this line's end.
+        span.offset + span.length > offset + length;
+  }
+
+  // Does this line contain the *beginning* of this multiline span?
+  // This assumes self.spanApplies() is true already.
+  bool spanStarts(FancySpan span) {
+    return span.offset >= offset;
+  }
+
+  // Does this line contain the *end* of this multiline span?
+  // This assumes self.spanApplies() is true already.
+  bool spanEnds(FancySpan span) {
+    return span.offset + span.length >= offset && span.offset + span.length <= offset + length;
+  }
+}
+
+class FancySpan {
+  final List<String>? label;
+  final SourceSpan span;
+  final Chalk style;
+
+  int get offset => span.offset;
+
+  int get length => span.length;
+
+  FancySpan(this.span, this.style, this.label);
+}
+
+List<String>? splitLabel(String? v) {
+  if (v == null) return null;
+  return v.split("\n");
+}
+
+extension on String {
+  String style(Chalk style) {
+    return style(this);
+  }
+}
