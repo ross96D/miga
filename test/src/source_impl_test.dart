@@ -28,6 +28,11 @@ void main() {
     expect(contents.column, equals(0));
   });
 
+  test("end of line", () {
+    final contents = SourceCodeString("source\n  text\n    here").readSpan(SourceSpan.simple(6, 0), 1, 1);
+    expect(utf8.decode(Uint8List.sublistView(contents.data)), equals("source\n  text\n"));
+  });
+
   test("middle of line", () {
     final contents = SourceCodeString("foo\nbarbar\nbaz\n").readSpan(SourceSpan.simple(7, 4), 0, 0);
     expect(utf8.decode(Uint8List.sublistView(contents.data)), equals("bar\n"));

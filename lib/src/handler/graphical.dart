@@ -380,7 +380,7 @@ class GraphicalReportHandler extends ReportHandler {
     renderCauses(diagnostic, source, buffer);
     renderSnippets(diagnostic, source, buffer);
     renderFooter(diagnostic, buffer);
-    // renderRelated()
+    renderRelated(diagnostic, source, buffer);
     if (footer != null) {
       buffer.writeln();
       final width = max(termWidth - 2, 0);
@@ -448,7 +448,7 @@ class GraphicalReportHandler extends ReportHandler {
           buffer.writeln();
           continue;
         }
-        buffer.writeln("${isFirst ? initialIdent : restIdent}$line");
+        buffer.writeln("${isFirst ? initialIdent : restIdent}${line.trimRight()}");
         isFirst = false;
       }
     }
@@ -503,6 +503,85 @@ class GraphicalReportHandler extends ReportHandler {
 
     for (final line in lines) {
       buffer.writeln(line);
+    }
+  }
+
+  void renderRelated(Diagnostic diagnostic, SourceCode? parentSource, StringBuffer buffer) {
+    if (diagnostic.related == null) return;
+
+    final source = diagnostic.sourceCode ?? parentSource;
+
+    final severityStyle = switch (diagnostic.severity) {
+      Severity.error || null => theme.styles.error,
+      Severity.warning => theme.styles.warning,
+      Severity.advice => theme.styles.advice,
+    };
+
+    if (showRelatedAsNested) {
+      final width = max(termWidth - 2, 0);
+      final iter = diagnostic.related!.peekable().iterator;
+      while (iter.moveNext()) {
+        final related = iter.current;
+        final isLast = iter.isLast;
+        final char = switch (isLast) {
+          true => theme.characters.lbot,
+          false => theme.characters.lcross,
+        };
+        final initialIdent = "  ${char}${theme.characters.hbar}${theme.characters.rarrow} ".style(
+          severityStyle,
+        );
+        final restIdent = "  ${isLast ? ' ' : theme.characters.vbar}   ".style(severityStyle);
+        TextWrapper(
+          width: width,
+          initialIndent: initialIdent,
+          subsequentIndent: restIdent,
+          breakLongWords: breakWords,
+        );
+        final inner = StringBuffer();
+        final innerRenderer = copyWith(
+          linkDisplayText: linkDisplayText,
+          footer: null,
+          withCauseChain: false,
+          termWidth: termWidth - Characters(restIdent).length,
+        );
+        innerRenderer.renderReportInner(related, source, inner);
+
+        var innerString = inner.toString();
+
+        bool isFirst = true;
+        // TODO 2: maybe split by "\n" is not the best solution
+        for (final line in innerString.split("\n")) {
+          if (line.isEmpty) {
+            buffer.writeln();
+            continue;
+          }
+          buffer.writeln("${isFirst ? initialIdent : restIdent}${line.trimRight()}");
+          isFirst = false;
+        }
+      }
+    } else {
+      final innerRender = copyWith(
+        footer: footer,
+        linkDisplayText: linkDisplayText,
+        withCauseChain: true,
+      );
+      for (final related in diagnostic.related!) {
+        buffer.writeln();
+        switch (related.severity) {
+          case Severity.error || null:
+            buffer.write("Error: ");
+          case Severity.warning:
+            buffer.write("Warning: ");
+          case Severity.advice:
+            buffer.write("Advice: ");
+        }
+        innerRender.renderHeader(related, buffer, true);
+        final source = related.sourceCode ?? parentSource;
+        innerRender.renderCauses(related, source, buffer);
+        innerRender.renderSnippets(related, source, buffer);
+        innerRender.renderFooter(related, buffer);
+        innerRender.renderRelated(related, source, buffer);
+      }
     }
   }
 

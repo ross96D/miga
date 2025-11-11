@@ -1,3 +1,3 @@
 ## 1.0.0
 
-- Initial version.
+- Initial port of https://github.com/zkat/miette.

@@ -1,8 +1,3 @@
-Port of the rust crate [miette](https://github.com/zkat/miette)
-
-### Simple usage example
-
-```dart
 import "package:miga/src/handler/graphical.dart";
 import "package:miga/src/protocol.dart";
 
@@ -49,4 +44,3 @@ void main() {
     print(buffer);
   }
 }
-```

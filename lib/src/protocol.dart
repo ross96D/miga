@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import "package:miga/src/handler/graphical.dart";
 
-var defaultReportHandler = GraphicalReportHandler.newThemed(MigaGraphicalTheme.unicode());
+ReportHandler defaultReportHandler = GraphicalReportHandler.newThemed(MigaGraphicalTheme.unicode());
 
 /// Adds rich metadata to your errors that can be used to
 /// print really nice and human-friendly error messages.
@@ -113,11 +113,11 @@ final class LabeledSourceSpan implements SourceSpan {
 
   LabeledSourceSpan._({required this.label, required this.span, required this.primary});
 
-  factory LabeledSourceSpan(String? label, int byteOffset, int length) {
+  factory LabeledSourceSpan(String? label, int byteOffset, int length, [bool primary = false]) {
     return LabeledSourceSpan._(
       label: label,
       span: SourceSpan.simple(byteOffset, length),
-      primary: false,
+      primary: primary,
     );
   }
 

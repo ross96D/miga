@@ -71,7 +71,7 @@ MigaSpanContent _contextInfo(
       state.startColumn += 1;
     }
 
-    if (state.offset >= (span.offset + max(span.length - 1, 0))) {
+    if (state.offset >= max(span.offset + span.length - 1, 0)) {
       state.posSpan = true;
       if (state.endLines >= contextLinesAfter) {
         state.offset += 1;

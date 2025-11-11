@@ -12,7 +12,7 @@ Iterable<(L, R)> _zip2<L, R>((Iterable<L>, Iterable<R>) iterables) sync* {
   }
 }
 
-extension Zip2<L> on Iterable<L> {
+extension Zip2<L extends Object> on Iterable<L> {
   Iterable<(L, R)> zip2<R>(Iterable<R> iterable) {
     return _zip2((this, iterable));
   }
@@ -28,6 +28,10 @@ extension Zip2<L> on Iterable<L> {
       value = combine(value, iterator.current);
     }
     return value;
+  }
+
+  Peekable<L> peekable() {
+    return Peekable(this.iterator);
   }
 }
 
@@ -56,6 +60,56 @@ bool isCharBoundary(Uint8List text, int index) {
     return index == text.length;
   }
   final byte = text[index];
+
   /// taked from https://github.com/rust-lang/rust/blob/a7b3715826827677ca8769eb88dc8052f43e734b/library/core/src/num/mod.rs#L1078
-  return  byte < 128 || byte >= 192;
+  return byte < 128 || byte >= 192;
+}
+
+class Peekable<T extends Object> extends Iterable<T> {
+  final Iterator<T> inner;
+  Peekable(this.inner);
+
+  @override
+  PeekableIterator<T> get iterator => PeekableIterator(inner);
+}
+
+class PeekableIterator<T extends Object>  implements Iterator<T> {
+  Iterator<T> inner;
+
+  T? _current;
+  T? _peek;
+
+  bool hasPeek() {
+    return _hasNext;
+  }
+
+  T get peek => _peek!;
+
+  bool _hasNext;
+
+  bool get isLast => !_hasNext;
+
+  PeekableIterator(this.inner): _hasNext = false {
+    _hasNext = inner.moveNext();
+    if (_hasNext) {
+      _peek = inner.current;
+    }
+  }
+
+  @override
+  T get current => _current!;
+
+  @override
+  bool moveNext() {
+    if (_hasNext) {
+      _hasNext = inner.moveNext();
+      _current = _peek;
+      if (_hasNext) {
+        _peek = inner.current;
+      }
+      return true;
+    } else {
+      return false;
+    }
+  }
 }
