@@ -1,6 +1,6 @@
 name: miga
 description: A starting point for Dart libraries or applications.
-version: 1.0.0
+version: 1.0.1
 repository: https://github.com/ross96D/miga
 
 environment:
@@ -8,7 +8,7 @@ environment:
 
 # Add regular dependencies here.
 dependencies:
-  meta: ^1.17.0
+  meta: ^1.15.0
   chalkdart: ^3.0.5
   textwrap: ^2.1.0
   characters: ^1.4.1
