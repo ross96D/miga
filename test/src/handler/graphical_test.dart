@@ -185,6 +185,34 @@ void main() {
 """),
     );
   });
+
+  test("single line with wide char", () {
+    final src = SourceCodeString("source\n  👼🏼text\n    here");
+
+    final diagnostic = _MyBadMultipleSpans(
+      NamedSourceCode("bad_file.rs", src),
+      LabeledSourceSpan("this bit here", 13, 8),
+      help: "try doing it better next time?",
+    );
+
+    // Use GraphicalReportHandler with a fixed width? The Rust test doesn't set width, so we use default.
+    final actual = report(diagnostic);
+
+    expect(
+      actual,
+      equals("""
+  × oops!
+   ╭─[bad_file.rs:2:7]
+ 1 │ source
+ 2 │   👼🏼text
+   ·     ───┬──
+   ·        ╰── this bit here
+ 3 │     here
+   ╰────
+  help: try doing it better next time?
+"""),
+    );
+  });
 }
 
 class _MyBadMultipleSpans extends Diagnostic {
