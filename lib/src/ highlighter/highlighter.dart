@@ -5,7 +5,7 @@ abstract class Highlighter {
 }
 
 abstract class HighlighterState {
-  List<String> highlightLine(String line);
+  String highlightLine(String line);
 }
 
 class BlankHighlighter implements Highlighter {
@@ -17,7 +17,7 @@ class BlankHighlighter implements Highlighter {
 
 class BlankHighlighterState implements HighlighterState {
   @override
-  List<String> highlightLine(String line) {
-    return [line];
+  String highlightLine(String line) {
+    return line;
   }
 }

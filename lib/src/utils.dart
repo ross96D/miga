@@ -1,4 +1,5 @@
 import "dart:convert";
+import "dart:typed_data";
 
 Iterable<(L, R)> zip2<L, R>((Iterable<L>, Iterable<R>) iterables) {
   return _zip2(iterables);
@@ -14,6 +15,19 @@ Iterable<(L, R)> _zip2<L, R>((Iterable<L>, Iterable<R>) iterables) sync* {
 extension Zip2<L> on Iterable<L> {
   Iterable<(L, R)> zip2<R>(Iterable<R> iterable) {
     return _zip2((this, iterable));
+  }
+
+  /// Does not throw if iterator has no elements, instead returns [defaultValue]
+  L? reduceSafe(L Function(L value, L element) combine, [L? defaultValue]) {
+    Iterator<L> iterator = this.iterator;
+    if (!iterator.moveNext()) {
+      return defaultValue;
+    }
+    L value = iterator.current;
+    while (iterator.moveNext()) {
+      value = combine(value, iterator.current);
+    }
+    return value;
   }
 }
 
@@ -33,4 +47,15 @@ extension Utf8ByteLength on int {
     final list = utf8.encode(String.fromCharCode(this));
     return list.length;
   }
+}
+
+bool isCharBoundary(Uint8List text, int index) {
+  if (index == 0) return true;
+
+  if (index >= text.length) {
+    return index == text.length;
+  }
+  final byte = text[index];
+  /// taked from https://github.com/rust-lang/rust/blob/a7b3715826827677ca8769eb88dc8052f43e734b/library/core/src/num/mod.rs#L1078
+  return  byte < 128 || byte >= 192;
 }

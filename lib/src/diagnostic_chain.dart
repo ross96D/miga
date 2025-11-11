@@ -12,8 +12,13 @@ class DiagnosticChain {
     if (_state == null) return;
 
     while (_state != null) {
-      yield _state!;
+      final toYield = _state!;
       _state = _state?.diagnosticSource;
+      yield toYield;
     }
+  }
+
+  Diagnostic? peek() {
+    return _state;
   }
 }

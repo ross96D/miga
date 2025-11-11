@@ -3,9 +3,12 @@ import "dart:math";
 import "dart:typed_data";
 
 import "package:chalkdart/chalk.dart";
+import "package:characters/characters.dart";
 import "package:miga/src/%20highlighter/highlighter.dart";
+import "package:miga/src/diagnostic_chain.dart";
 import "package:miga/src/protocol.dart";
 import "package:miga/src/utils.dart";
+import "package:miga/src/utils/is_printable.dart";
 import "package:textwrap/textwrap.dart" show TextWrapper;
 
 /// Theme used by [GraphicalReportHandler] to
@@ -24,6 +27,15 @@ class MigaGraphicalTheme {
   final MigaStyleTheme styles;
 
   MigaGraphicalTheme(this.styles, this.characters);
+
+  factory MigaGraphicalTheme.defaults([Chalk? root]) {
+    final env = String.fromEnvironment("NO_COLOR");
+    if (env.isEmpty) {
+      return MigaGraphicalTheme.unicode(root);
+    } else {
+      return MigaGraphicalTheme.unicodeNoColor(root);
+    }
+  }
 
   /// ASCII-art-based graphical drawing, with ANSI styling.
   MigaGraphicalTheme.ascii([Chalk? root])
@@ -55,26 +67,26 @@ class MigaGraphicalTheme {
 
 class MigaStyleTheme {
   /// Style to apply to things highlighted as "error".
-  final Chalk error;
+  final Chalk? error;
 
   /// Style to apply to things highlighted as "warning".
-  final Chalk warning;
+  final Chalk? warning;
 
   /// Style to apply to things highlighted as "advice".
-  final Chalk advice;
+  final Chalk? advice;
 
   /// Style to apply to the help text.
-  final Chalk help;
+  final Chalk? help;
 
   /// Style to apply to filenames/links/URLs.
-  final Chalk link;
+  final Chalk? link;
 
   /// Style to apply to line numbers.
-  final Chalk linum;
+  final Chalk? linum;
 
   /// Styles to cycle through to render the lines
   /// and text for diagnostic highlights.
-  final List<Chalk> highlights;
+  final List<Chalk?> highlights;
 
   const MigaStyleTheme({
     required this.error,
@@ -105,13 +117,13 @@ class MigaStyleTheme {
       highlights = [parent.magenta, parent.yellow, parent.green];
 
   MigaStyleTheme.none(Chalk parent)
-    : error = parent.normal,
-      warning = parent.normal,
-      advice = parent.normal,
-      help = parent.normal,
-      link = parent.normal,
-      linum = parent.normal,
-      highlights = [parent.normal];
+    : error = null,
+      warning = null,
+      advice = null,
+      help = null,
+      link = null,
+      linum = null,
+      highlights = [null];
 }
 
 class MigaCharactersTheme {
@@ -258,6 +270,8 @@ class GraphicalReportHandler extends ReportHandler {
   /// The width to wrap the report at.
   final int termWidth;
 
+  final int tabWidth;
+
   /// Enables or disables wrapping of lines to fit the width.
   final bool wrapLines;
 
@@ -275,13 +289,14 @@ class GraphicalReportHandler extends ReportHandler {
   /// Whether to render related errors as nested errors.
   final bool showRelatedAsNested;
 
-  GraphicalReportHandler({
+  GraphicalReportHandler._({
     required this.links,
     required this.theme,
     required this.footer,
     required this.contextLines,
     required this.withCauseChain,
     required this.termWidth,
+    required this.tabWidth,
     required this.wrapLines,
     required this.breakWords,
     required this.withPrimarySpanStart,
@@ -290,8 +305,154 @@ class GraphicalReportHandler extends ReportHandler {
     required this.showRelatedAsNested,
   });
 
+  factory GraphicalReportHandler() => GraphicalReportHandler._(
+    links: MigaLinkStyle.link,
+    termWidth: 200,
+    theme: MigaGraphicalTheme.defaults(),
+    footer: null,
+    contextLines: 1,
+    tabWidth: 4,
+    withCauseChain: true,
+    wrapLines: true,
+    breakWords: true,
+    withPrimarySpanStart: true,
+    highlighter: BlankHighlighter(),
+    linkDisplayText: null,
+    showRelatedAsNested: false,
+  );
+
+  factory GraphicalReportHandler.newThemed(MigaGraphicalTheme theme) => GraphicalReportHandler._(
+    links: MigaLinkStyle.link,
+    termWidth: 200,
+    theme: theme,
+    footer: null,
+    contextLines: 1,
+    tabWidth: 4,
+    withCauseChain: true,
+    wrapLines: true,
+    breakWords: true,
+    withPrimarySpanStart: true,
+    highlighter: BlankHighlighter(),
+    linkDisplayText: null,
+    showRelatedAsNested: false,
+  );
+
+  GraphicalReportHandler copyWith({
+    required String? footer,
+    required String? linkDisplayText,
+    MigaLinkStyle? links,
+    MigaGraphicalTheme? theme,
+    int? contextLines,
+    bool? withCauseChain,
+    int? termWidth,
+    int? tabWidth,
+    bool? wrapLines,
+    bool? breakWords,
+    bool? withPrimarySpanStart,
+    Highlighter? highlighter,
+    bool? showRelatedAsNested,
+  }) {
+    return GraphicalReportHandler._(
+      links: links ?? this.links,
+      theme: theme ?? this.theme,
+      footer: footer,
+      contextLines: contextLines ?? this.contextLines,
+      withCauseChain: withCauseChain ?? this.withCauseChain,
+      termWidth: termWidth ?? this.termWidth,
+      tabWidth: tabWidth ?? this.tabWidth,
+      wrapLines: wrapLines ?? this.wrapLines,
+      breakWords: breakWords ?? this.breakWords,
+      withPrimarySpanStart: withPrimarySpanStart ?? this.withPrimarySpanStart,
+      highlighter: highlighter ?? this.highlighter,
+      linkDisplayText: linkDisplayText,
+      showRelatedAsNested: showRelatedAsNested ?? this.showRelatedAsNested,
+    );
+  }
+
   @override
-  void report(Diagnostic diagnostic, StringBuffer buffer) {}
+  void report(Diagnostic diagnostic, StringBuffer buffer) {
+    renderReportInner(diagnostic, diagnostic.sourceCode, buffer);
+  }
+
+  void renderReportInner(Diagnostic diagnostic, SourceCode? parentSource, StringBuffer buffer) {
+    final source = diagnostic.sourceCode ?? parentSource;
+    renderHeader(diagnostic, buffer, false);
+    renderCauses(diagnostic, source, buffer);
+    renderSnippets(diagnostic, source, buffer);
+    renderFooter(diagnostic, buffer);
+    // renderRelated()
+    if (footer != null) {
+      buffer.writeln();
+      final width = max(termWidth - 2, 0);
+      final lines = TextWrapper(
+        width: width,
+        initialIndent: "  ",
+        subsequentIndent: "  ",
+        breakLongWords: breakWords,
+      ).wrap(footer!);
+      for (final line in lines) {
+        buffer.writeln(line);
+      }
+    }
+  }
+
+  void renderCauses(Diagnostic diagnostic, SourceCode? parentSource, StringBuffer buffer) {
+    final source = parentSource ?? diagnostic.sourceCode;
+
+    final (severityStyle, severityIcon) = switch (diagnostic.severity) {
+      Severity.error || null => (theme.styles.error, theme.characters.error),
+      Severity.warning => (theme.styles.warning, theme.characters.warning),
+      Severity.advice => (theme.styles.advice, theme.characters.advice),
+    };
+
+    final width = max(termWidth - 2, 0);
+    final lines = TextWrapper(
+      width: width,
+      initialIndent: "  ${severityIcon.style(severityStyle)} ",
+      subsequentIndent: "  ${theme.characters.vbar.style(severityStyle)} ",
+      breakLongWords: breakWords,
+    ).wrap(diagnostic.display());
+
+    for (final line in lines) {
+      buffer.writeln(line);
+    }
+
+    if (!withCauseChain) return;
+
+    final chain = DiagnosticChain(diagnostic.diagnosticSource);
+    for (final cause in chain.iter()) {
+      final isLast = chain.peek() == null;
+      final char = !isLast ? theme.characters.lcross : theme.characters.lbot;
+
+      final initialIdent = "  $char${theme.characters.hbar}${theme.characters.rarrow} ".style(
+        severityStyle,
+      );
+      final restIdent = "  ${isLast ? ' ' : theme.characters.vbar}   ".style(severityStyle);
+      final innerRenderer = copyWith(
+        footer: null,
+        linkDisplayText: linkDisplayText,
+        withCauseChain: false,
+        termWidth: termWidth - Characters(restIdent).length,
+      );
+      final inner = StringBuffer();
+      innerRenderer.renderReportInner(cause, source, inner);
+
+      var innerString = inner.toString();
+      if (innerString.startsWith("\n")) {
+        innerString = innerString.replaceFirst("\n", "");
+      }
+      bool isFirst = true;
+      // TODO 2: maybe split by "\n" is not the best solution
+      for (final line in innerString.split("\n")) {
+        if (line.isEmpty) {
+          buffer.writeln();
+          continue;
+        }
+        buffer.writeln("${isFirst ? initialIdent : restIdent}$line");
+        isFirst = false;
+      }
+    }
+  }
 
   void renderHeader(Diagnostic diagnostic, StringBuffer buffer, bool isNested) {
     final severityStyle = switch (diagnostic.severity) {
@@ -327,7 +488,7 @@ class GraphicalReportHandler extends ReportHandler {
     }
   }
 
-  void renderFooter(Diagnostic diagnostic, StringBuffer buffer, bool isNested) {
+  void renderFooter(Diagnostic diagnostic, StringBuffer buffer) {
     if (diagnostic.help == null) return;
 
     final width = max(termWidth - 2, 0);
@@ -409,7 +570,7 @@ class GraphicalReportHandler extends ReportHandler {
       final label = entry.$1;
       final style = entry.$2;
       return FancySpan(label, style, splitLabel(label.label));
-    });
+    }).toList();
 
     final highlighterState = highlighter.startHighlighterState(contents);
 
@@ -456,16 +617,76 @@ class GraphicalReportHandler extends ReportHandler {
     for (final line in lines) {
       // Line number, appropriately padded.
       writeLinum(linumWidth, line.lineNumber, buffer);
-      // write_linum(f, linum_width, line.line_number)?;
 
       // Then, we need to print the gutter, along with any fly-bys We
       // have separate gutters depending on whether we're on the actual
       // line, or on one of the "highlight lines" below it.
-      renderLineGutter(maxGutter, line, labelsSpans, buffer);
+      _renderLineGutter(maxGutter, line, labelsSpans, buffer);
+
+      final styledText = highlighterState.highlightLine(line.text);
+      renderLineText(styledText, buffer);
+
+      final singleLine = <FancySpan>[];
+      final multiLine = <FancySpan>[];
+      for (final hl in labelsSpans) {
+        if (line.spanApplies(hl)) {
+          if (line.spanLineOnly(hl)) {
+            singleLine.add(hl);
+          } else {
+            multiLine.add(hl);
+          }
+        }
+      }
+      if (singleLine.isNotEmpty) {
+        // no line number!
+        writeNoLinum(linumWidth, buffer);
+        // gutter _again_
+        renderHighlightGutter(maxGutter, line, labelsSpans, LabelRenderMode.singleLine, buffer);
+        renderSingleLineHighlights(line, linumWidth, maxGutter, singleLine, labelsSpans, buffer);
+      }
+
+      for (final hl in multiLine) {
+        if (hl.label != null && line.spanEnds(hl) && !line.spanStarts(hl)) {
+          _renderMultilineEnd(labelsSpans, maxGutter, linumWidth, line, hl, buffer);
+        }
+      }
+    }
+
+    buffer.writeln("${' ' * (linumWidth + 2)}${theme.characters.lbot}${theme.characters.hbar * 4}");
+  }
+
+  void _renderMultilineEnd(
+    Iterable<FancySpan> labels,
+    int maxGutter,
+    int linumWidth,
+    _Line line,
+    FancySpan label,
+    StringBuffer buffer,
+  ) {
+    writeNoLinum(linumWidth, buffer);
+    final labelParts = label.labelParts();
+
+    if (labelParts == null) {
+      renderHighlightGutter(maxGutter, line, labels, LabelRenderMode.singleLine, buffer);
+      buffer.write(theme.characters.hbar.style(label.style));
+      return;
+    }
+
+    final first = labelParts.first;
+    final rest = labelParts.sublist(1);
+
+    final renderMode = rest.isEmpty ? LabelRenderMode.singleLine : LabelRenderMode.multiLineFirst;
+    renderHighlightGutter(maxGutter, line, labels, renderMode, buffer);
+    renderMultiLineEndSingle(first, label.style, renderMode, buffer);
+
+    for (final labelLine in rest) {
+      writeNoLinum(linumWidth, buffer);
+      renderHighlightGutter(maxGutter, line, labels, LabelRenderMode.multiLineRest, buffer);
+      renderMultiLineEndSingle(labelLine, label.style, LabelRenderMode.multiLineRest, buffer);
     }
   }
 
-  void renderLineGutter(
+  void _renderLineGutter(
     int maxGutter,
     _Line line,
     Iterable<FancySpan> highlights,
@@ -510,13 +731,283 @@ class GraphicalReportHandler extends ReportHandler {
     buffer.write("$gutterStr$rigthPad");
   }
 
-  void writeLinum(int width, int linum, StringBuffer buffer) {
-    final linumStr = linum.toString().padRight(width).style(theme.styles.linum);
-    buffer.write(" $linumStr ${theme.characters.vbar}");
+  void renderLineText(String text, StringBuffer buffer) {
+    final inner = StringBuffer();
+    for (final (char, width) in Characters(text).zip2(lineVisualCharWidth(text))) {
+      if (char == "\t") {
+        inner.write(" " * width);
+      } else {
+        inner.write(char);
+      }
+    }
+    inner.writeCharCode(10); // write \n
+    buffer.write(inner);
   }
 
-  void writeNoLinum(int width, int linum, StringBuffer buffer) {
-    buffer.write(" ${''.padRight(width)} ${theme.characters.vbar}");
+  void renderHighlightGutter(
+    int maxGutter,
+    _Line line,
+    Iterable<FancySpan> highlights,
+    LabelRenderMode renderMode,
+    StringBuffer buffer,
+  ) {
+    if (maxGutter == 0) return;
+
+    // keeps track of how many columns wide the gutter is
+    // important for ansi since simply measuring the size of the final string
+    // gives the wrong result when the string contains ansi codes.
+    var gutterCols = 0;
+    final chars = theme.characters;
+    var gutter = StringBuffer();
+    final applicable = highlights.where((hl) => line.spanAppliesGutter(hl));
+
+    var i = -1;
+    for (final hl in applicable) {
+      i += 1;
+      // if !line.span_line_only(hl) && line.span_ends(hl) {}
+      if (!line.spanLineOnly(hl) && line.spanEnds(hl)) {
+        // if render_mode == LabelRenderMode::MultiLineRest {
+        if (renderMode == LabelRenderMode.multiLineRest) {
+          // this is to make multiline labels work. We want to make the right amount
+          // of horizontal space for them, but not actually draw the lines
+          final horizontalSpace = max(maxGutter - i, 0) + 2;
+          gutter.write(" " * horizontalSpace);
+          // account for one more horizontal space, since in multiline mode
+          // we also add in the vertical line before the label like this:
+          // 2 │ ╭─▶   text
+          // 3 │ ├─▶     here
+          //   · ╰──┤ these two lines
+          //   ·    │ are the problem
+          //        ^this
+          gutterCols += horizontalSpace + 1;
+        } else {
+          // et num_repeat = max_gutter.saturating_sub(i) + 2;
+          final numRepeat = max(maxGutter - i, 0) + 2;
+          final numRepeatHbar = numRepeat - (renderMode == LabelRenderMode.multiLineFirst ? 1 : 0);
+          gutter.write(chars.lbot.style(hl.style));
+
+          gutter.write((chars.hbar * numRepeatHbar).style(hl.style));
+          // we count 1 for the lbot char, and then a few more, the same number
+          // as we just repeated for. For each repeat we only add 1, even though
+          // due to ansi escape codes the number of bytes in the string could grow
+          // a lot each time.
+          gutterCols += numRepeat + 1;
+        }
+        break;
+      } else {
+        gutter.write(chars.vbar.style(hl.style));
+        // we may push many bytes for the ansi escape codes style adds,
+        // but we still only add a single character-width to the string in a terminal
+        gutterCols += 1;
+      }
+    }
+
+    // now calculate how many spaces to add based on how many columns we just created.
+    // it's the max width of the gutter, minus how many character-widths we just generated
+    // capped at 0 (though this should never go below in reality), and then we add 3 to
+    // account for arrowheads when a gutter line ends
+    final numSpaces = max((maxGutter + 3) - gutterCols, 0);
+    // we then write the gutter and as many spaces as we need
+    buffer.write(gutter.toString() + " " * numSpaces);
+  }
+
+  void renderSingleLineHighlights(
+    _Line line,
+    int linumWidth,
+    int maxGutter,
+    List<FancySpan> singleLiners,
+    List<FancySpan> allHighlights,
+    StringBuffer buffer,
+  ) {
+    var highest = 0;
+
+    final chars = theme.characters;
+    final vbarOffsets = singleLiners.map((hl) {
+      final byteStart = hl.offset;
+      final byteEnd = hl.offset + hl.length;
+      final start = max(visualOffset(line, byteStart, true), highest);
+
+      final end = hl.length == 0 ? start + 1 : max(visualOffset(line, byteEnd, false), start + 1);
+
+      final vbarOffset = ((start + end) / 2).floor();
+      final numLeft = vbarOffset - start;
+      final numRight = end - vbarOffset - 1;
+
+      final String secondChar;
+      if (hl.length == 0) {
+        secondChar = chars.uarrow;
+      } else if (hl.label != null) {
+        secondChar = chars.underbar;
+      } else {
+        secondChar = chars.underline;
+      }
+      final initialPad = "".padRight(max(start - highest, 0));
+      buffer.write(
+        "$initialPad${chars.underline * numLeft}$secondChar${chars.underline * numRight}".style(
+          hl.style,
+        ),
+      );
+
+      highest = max(highest, end);
+
+      return (hl, vbarOffset);
+    }).toList();
+    buffer.writeln();
+
+    for (final hl in singleLiners.reversed) {
+      final labelParts = hl.labelParts();
+      if (labelParts == null) {
+        continue;
+      }
+      var first = true;
+      for (final labelLine in labelParts) {
+        final renderMode = first
+            ? (labelParts.length == 1 ? LabelRenderMode.singleLine : LabelRenderMode.multiLineFirst)
+            : LabelRenderMode.multiLineRest;
+
+        writeLabelText(
+          line,
+          linumWidth,
+          maxGutter,
+          allHighlights,
+          chars,
+          vbarOffsets,
+          hl,
+          labelLine,
+          renderMode,
+          buffer,
+        );
+        first = false;
+      }
+    }
+  }
+
+  void renderMultiLineEndSingle(
+    String label,
+    Chalk? style,
+    LabelRenderMode renderMode,
+    StringBuffer buffer,
+  ) {
+    switch (renderMode) {
+      case LabelRenderMode.singleLine:
+        buffer.writeln("${theme.characters.hbar.style(style)} $label");
+      case LabelRenderMode.multiLineFirst:
+        buffer.writeln("${theme.characters.rcross.style(style)} $label");
+      case LabelRenderMode.multiLineRest:
+        buffer.writeln("${theme.characters.vbar.style(style)} $label");
+    }
+  }
+
+  /// Returns the visual column position of a byte offset on a specific line.
+  ///
+  /// If the offset occurs in the middle of a character, the returned column
+  /// corresponds to that character's first column in `start` is true, or its
+  /// last column if `start` is false.
+  int visualOffset(_Line line, int offset, bool start) {
+    final lineRange = List.generate(line.length + 1, (i) => line.offset + i);
+    assert(lineRange.contains(offset));
+
+    var bytesIdx = offset - line.offset;
+    // TODO 3: we could optimize this to avoid the utf8.encode call that suffer a copy penalty
+    // and instead use utf8ByteLength function from utils and iterate over the runes instead
+    // of iterating over the bytes
+    final bytes = utf8.encode(line.text);
+    while (bytesIdx <= bytes.length && bytesIdx >= 0 && !isCharBoundary(bytes, bytesIdx)) {
+      if (start) {
+        bytesIdx -= 1;
+      } else {
+        bytesIdx += 1;
+      }
+    }
+    final bytesSublist = bytes.sublist(0, bytesIdx.clamp(0, bytes.length));
+    var textWidth = lineVisualCharWidth(utf8.decode(bytesSublist)).reduceSafe((a, b) => a + b) ?? 0;
+    if (bytesIdx > bytes.length) {
+      // Spans extending past the end of the line are always rendered as
+      // one column past the end of the visible line.
+      //
+      // This doesn't necessarily correspond to a specific byte-offset,
+      // since a span extending past the end of the line could contain:
+      //  - an actual \n character (1 byte)
+      //  - a CRLF (2 bytes)
+      //  - EOF (0 bytes)
+      return textWidth + 1;
+    } else {
+      return textWidth;
+    }
+  }
+
+  void writeLabelText(
+    _Line line,
+    int linumWidth,
+    int maxGutter,
+    List<FancySpan> allHl,
+    MigaCharactersTheme chars,
+    List<(FancySpan, int)> vbarOffsets,
+    FancySpan hl,
+    String label,
+    LabelRenderMode renderMode,
+    StringBuffer buffer,
+  ) {
+    writeNoLinum(linumWidth, buffer);
+    renderHighlightGutter(maxGutter, line, allHl, LabelRenderMode.singleLine, buffer);
+
+    var currOffset = 1;
+    for (final (offsetHl, vbarOffset) in vbarOffsets) {
+      while (currOffset < vbarOffset + 1) {
+        buffer.write(" ");
+        currOffset += 1;
+      }
+      if (offsetHl != hl) {
+        buffer.write(chars.vbar.style(offsetHl.style));
+        currOffset += 1;
+      } else {
+        final lines = switch (renderMode) {
+          LabelRenderMode.singleLine => "${chars.lbot}${chars.hbar * 2} $label",
+          LabelRenderMode.multiLineFirst => "${chars.lbot}${chars.hbar}${chars.rcross} $label",
+          LabelRenderMode.multiLineRest => "  ${chars.vbar} $label",
+        };
+        buffer.writeln(lines.style(hl.style));
+        break;
+      }
+    }
+  }
+
+  void writeLinum(int width, int linum, StringBuffer buffer) {
+    final linumStr = linum.toString().padRight(width).style(theme.styles.linum);
+    buffer.write(" $linumStr ${theme.characters.vbar} ");
+  }
+
+  void writeNoLinum(int width, StringBuffer buffer) {
+    buffer.write(" ${''.padRight(width)} ${theme.characters.vbarBreak} ");
+  }
+
+  Iterable<int> lineVisualCharWidth(String text) sync* {
+    var column = 0;
+    var escaped = false;
+
+    for (final char in Characters(text)) {
+      var width = 0;
+      switch ((escaped, char)) {
+        case (false, "\t"):
+          width = tabWidth - column % tabWidth;
+        case (false, "\x1b"):
+          escaped = true;
+          width = 0;
+        case (false, _):
+          if (char.length > 1) {
+            width = char.length;
+          } else {
+            width = isPrintable(char.codeUnitAt(0)) ? 1 : 0;
+          }
+        case (true, "m"):
+          escaped = false;
+          width = 0;
+        case (true, _):
+          width = 0;
+      }
+      column += width;
+      yield width;
+    }
   }
 
   (SpanContents, List<_Line>) getLines(SourceCode source, SourceSpan contextSpan) {
@@ -643,13 +1134,25 @@ class _Line {
 class FancySpan {
   final List<String>? label;
   final SourceSpan span;
-  final Chalk style;
+  final Chalk? style;
 
   int get offset => span.offset;
 
   int get length => span.length;
 
   FancySpan(this.span, this.style, this.label);
+
+  List<String>? labelParts() {
+    if (label == null) return null;
+    return _labelParts().toList();
+  }
+
+  Iterable<String> _labelParts() sync* {
+    assert(label != null);
+    for (final l in label!) {
+      yield l.style(style);
+    }
+  }
 }
 
 List<String>? splitLabel(String? v) {
@@ -657,8 +1160,19 @@ List<String>? splitLabel(String? v) {
   return v.split("\n");
 }
 
+enum LabelRenderMode {
+  /// we're rendering a single line label (or not rendering in any special way)
+  singleLine,
+
+  /// we're rendering a multiline label
+  multiLineFirst,
+
+  /// we're rendering the rest of a multiline label
+  multiLineRest,
+}
+
 extension on String {
-  String style(Chalk style) {
-    return style(this);
+  String style(Chalk? style) {
+    return style?.call(this) ?? this;
   }
 }

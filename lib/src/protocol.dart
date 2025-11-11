@@ -2,9 +2,13 @@
 
 import 'dart:typed_data';
 
+import "package:miga/src/handler/graphical.dart";
+
+var defaultReportHandler = GraphicalReportHandler.newThemed(MigaGraphicalTheme.unicode());
+
 /// Adds rich metadata to your errors that can be used to
 /// print really nice and human-friendly error messages.
-abstract class Diagnostic {
+abstract class Diagnostic implements Exception {
   /// Unique diagnostic code that can be used to look up more information
   /// about this [Diagnostic]. Ideally also globally unique.
   ///
@@ -40,7 +44,11 @@ abstract class Diagnostic {
   String display();
 
   @override
-  String toString() => display();
+  String toString() {
+    final buff = StringBuffer();
+    defaultReportHandler.report(this, buff);
+    return buff.toString();
+  }
 }
 
 enum Severity { advice, warning, error }

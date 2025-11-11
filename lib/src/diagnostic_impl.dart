@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_double_quotes
 
 import "package:miga/src/protocol.dart";
+import "package:miga/src/source_impl.dart";
 
 class MigaDiagnostic extends Diagnostic {
   final String message;
@@ -40,6 +41,25 @@ class MigaDiagnostic extends Diagnostic {
     required this.related,
     required this.diagnosticSource,
   });
+
+  MigaDiagnostic.string(this.message, {
+    this.code,
+    this.severity,
+    this.help,
+    this.url,
+    this.sourceCode,
+    this.labels,
+    this.related,
+    this.diagnosticSource,
+  });
+
+  factory MigaDiagnostic.formatExcpetion(String message, FormatException excpetion) {
+    return MigaDiagnostic.string(
+      message,
+      sourceCode: SourceCodeString(excpetion.source),
+      labels: [LabeledSourceSpan(excpetion.message, excpetion.offset ?? 0, 1)],
+    );
+  }
 
   @override
   String display() {

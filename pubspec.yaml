@@ -11,6 +11,7 @@ dependencies:
   meta: ^1.17.0
   chalkdart: ^3.0.5
   textwrap: ^2.1.0
+  characters: ^1.4.1
   # path: ^1.9.0
 
 dev_dependencies:
