@@ -1,5 +1,4 @@
-import "package:miga/src/handler/graphical.dart";
-import "package:miga/src/protocol.dart";
+import "package:miga/miga.dart";
 
 class NewError extends Diagnostic {
   @override

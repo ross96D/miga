@@ -3,5 +3,10 @@
 /// More dartdocs go here.
 library;
 
-
-// TODO: Export any libraries intended for clients of this package.
+export "src/protocol.dart";
+export "src/handler/graphical.dart";
+export "src/handler/narratable.dart";
+export "src/handler/debug.dart";
+export "src/handler/highlighter.dart";
+export "src/source_impl.dart";
+export "src/diagnostic_impl.dart";

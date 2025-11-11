@@ -1,6 +1,6 @@
 import "dart:convert";
 
-import "package:miga/src/diagnostic_impl.dart";
+import "package:miga/miga.dart";
 
 void main() {
   final str = '{"key": "value", 12: 123}';
