@@ -44,9 +44,9 @@ abstract class Diagnostic implements Exception {
   String display();
 
   @override
-  String toString() {
+  String toString([ReportHandler? handler]) {
     final buff = StringBuffer();
-    defaultReportHandler.report(this, buff);
+    (handler ?? defaultReportHandler).report(this, buff);
     return buff.toString();
   }
 }
